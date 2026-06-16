@@ -100,10 +100,7 @@ class AetherisGame(gl.Contract):
                 )
                 return gl.nondet.exec_prompt(prompt)
 
-            result = gl.eq_principle.prompt_comparative(
-                judge,
-                "Both validators must agree whether the vote is correct or wrong",
-            )
+            result = gl.eq_principle.strict_eq(judge)
 
             is_correct = "correct" in result.lower()
             self.total_votes += u256(1)

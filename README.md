@@ -45,7 +45,7 @@ cp .env.example .env
 Edit `.env`:
 
 ```
-VITE_CONTRACT_ADDRESS=0x8a7f9202f7d53E03d6F4d3fDfc1a8fee96b6455C
+VITE_CONTRACT_ADDRESS=0x8E712391620c342a75660dA60b1A16A177b8A0c1
 ```
 
 ### Deploy contract (optional)

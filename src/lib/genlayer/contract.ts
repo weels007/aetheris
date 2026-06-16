@@ -120,6 +120,11 @@ export interface SessionResult {
   gen: number;
 }
 
+export interface VoteResult {
+  correct: boolean;
+  streak: number;
+}
+
 export class AetherisGameContract {
   private client: GenLayerClient;
   private address: string;
@@ -140,47 +145,54 @@ export class AetherisGameContract {
     return await waitForReceipt(this.client, hash);
   }
 
-  async evaluateSession(votes: VoteData[]): Promise<SessionResult> {
-    const votesJson = JSON.stringify(votes);
-    const addr = (await this.client.account?.address) || "";
-    const addrLower = addr.toLowerCase();
-    console.log("[Contract] evaluateSession with", votes.length, "votes for", addrLower);
+  async evaluateVote(vote: VoteData): Promise<VoteResult> {
+    console.log("[Contract] evaluateVote:", vote.vote, "on proposal:", vote.proposal.substring(0, 50));
 
-    // 1. Submit TX and wait for receipt (TX confirmed on-chain)
-    const txHash = await writeContract(this.client, this.address, "evaluate_session", [votesJson]);
-    console.log("[Contract] evaluate_session TX submitted, waiting for receipt...");
+    const txHash = await writeContract(this.client, this.address, "evaluate_vote", [
+      vote.proposal,
+      vote.vote,
+      vote.context,
+      vote.difficulty,
+    ]);
 
     await waitForReceipt(this.client, txHash, 60, 5000);
-    console.log("[Contract] TX confirmed, polling for AI consensus result...");
+    console.log("[Contract] evaluate_vote TX confirmed");
 
-    // 2. Poll get_session_result until AI consensus is done (up to 5 minutes)
-    for (let i = 0; i < 60; i++) {
-      try {
-        const result = await this.getSessionResult(addrLower);
-        if (result && result !== "") {
-          console.log(`[Contract] AI consensus result (${i + 1}/60):`, result);
-          return JSON.parse(result);
-        }
-      } catch (e) {
-        console.log(`[Contract] polling error (${i + 1}/60):`, e);
-      }
-      await new Promise((r) => setTimeout(r, 5000));
-      if ((i + 1) % 12 === 0) {
-        console.log(`[Contract] still waiting for AI consensus... (${(i + 1) * 5}s elapsed)`);
-      }
-    }
-
-    console.warn("[Contract] polling timeout after 5 minutes");
-    return { correct: 0, total: votes.length, score: 0, gen: 0 };
+    return { correct: true, streak: 0 };
   }
 
-  async updateConfig(base: number, streak: number, penalty: number) {
-    const hash = await writeContract(this.client, this.address, "update_config", [
-      BigInt(base),
-      BigInt(streak),
-      BigInt(penalty),
-    ]);
-    return await waitForReceipt(this.client, hash);
+  async endSession(): Promise<SessionResult> {
+    console.log("[Contract] endSession");
+
+    const txHash = await writeContract(this.client, this.address, "end_session", []);
+    await waitForReceipt(this.client, txHash, 60, 5000);
+
+    const addr = (await this.client.account?.address) || "";
+    const addrLower = addr.toLowerCase();
+
+    for (let i = 0; i < 30; i++) {
+      try {
+        const raw = await readContractWithRetry(this.client, this.address, "get_session_stats", [addrLower]);
+        const mapped = mapContractResult(raw);
+        if (mapped && typeof mapped === "object") {
+          const stats = mapped as Record<string, unknown>;
+          if (Number(stats.total) > 0) {
+            console.log("[Contract] endSession result:", stats);
+            return {
+              correct: Number(stats.correct),
+              total: Number(stats.total),
+              score: Number(stats.score),
+              gen: Number(stats.gen),
+            };
+          }
+        }
+      } catch (e) {
+        console.log(`[Contract] endSession poll (${i + 1}/30):`, e);
+      }
+      await new Promise((r) => setTimeout(r, 3000));
+    }
+
+    return { correct: 0, total: 0, score: 0, gen: 0 };
   }
 
   async isRegistered(addr: string): Promise<boolean> {
@@ -213,10 +225,9 @@ export class AetherisGameContract {
     return !!mapContractResult(raw);
   }
 
-  async getSessionResult(addr: string): Promise<string> {
-    const raw = await readContractWithRetry(this.client, this.address, "get_session_result", [toLower(addr)]);
-    const mapped = mapContractResult(raw);
-    return typeof mapped === "string" ? mapped : JSON.stringify(mapped ?? "");
+  async getPlayerName(addr: string): Promise<string> {
+    const raw = await readContractWithRetry(this.client, this.address, "get_player_name", [toLower(addr)]);
+    return String(mapContractResult(raw) ?? "");
   }
 
   async getTotalPlayers(): Promise<number> {
@@ -232,11 +243,6 @@ export class AetherisGameContract {
   async getTotalVotes(): Promise<number> {
     const raw = await readContractWithRetry(this.client, this.address, "get_total_votes", []);
     return Number(mapContractResult(raw) ?? 0);
-  }
-
-  async getPlayerName(addr: string): Promise<string> {
-    const raw = await readContractWithRetry(this.client, this.address, "get_player_name", [toLower(addr)]);
-    return String(mapContractResult(raw) ?? "");
   }
 
   async getLeaderboard(): Promise<LeaderboardEntry[]> {

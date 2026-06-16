@@ -1,6 +1,7 @@
 # { "Depends": "py-genlayer:1jb45aa8ynh2a9c9xn3b7qqh8sm5q93hwfp7jqmwsfhh8jpz09h6" }
 
 from genlayer import *
+import json
 
 
 def _addr(a) -> str:
@@ -19,7 +20,12 @@ class AetherisGame(gl.Contract):
     current_streak: TreeMap[str, u256]
     best_streak: TreeMap[str, u256]
     has_active: TreeMap[str, bool]
-    session_result: TreeMap[str, str]
+    round_results: TreeMap[str, str]
+    session_correct: TreeMap[str, u256]
+    session_total: TreeMap[str, u256]
+    session_score: TreeMap[str, u256]
+    session_gen: TreeMap[str, u256]
+    session_votes: TreeMap[str, u256]
     leaderboard: TreeMap[str, str]
     leaderboard_by_player: TreeMap[str, str]
     leaderboard_count: u256
@@ -66,59 +72,77 @@ class AetherisGame(gl.Contract):
         if self.has_active.get(s, False):
             return "session active"
         self.has_active[s] = True
+        self.session_correct[s] = u256(0)
+        self.session_total[s] = u256(0)
+        self.session_score[s] = u256(0)
+        self.session_gen[s] = u256(0)
+        self.session_votes[s] = u256(0)
         self.total_games += u256(1)
         return "session started"
 
     @gl.public.write
-    def evaluate_session(self, votes_json: str) -> str:
-        import json
+    def evaluate_vote(self, proposal: str, player_vote: str, context: str, difficulty: u256) -> str:
         s = _addr(gl.message.sender_address)
         if not self.has_active.get(s, False):
             return "no session"
-        self.session_result[s] = ""
 
-        votes = json.loads(votes_json)
-        total_correct = 0
-        total_score = 0
-        total_gen = 0
+        def judge():
+            prompt = (
+                "GENLAYER CONSENSUS JUDGE\n"
+                "Proposal: " + proposal + "\n"
+                "Context: " + context + "\n"
+                "Difficulty: " + str(difficulty) + "/3\n"
+                "Player voted: " + player_vote + "\n"
+                "Determine if the vote is correct. Reply ONLY: correct or wrong"
+            )
+            return gl.nondet.exec_prompt(prompt)
+
+        result = gl.eq_principle.strict_eq(judge)
+
+        is_correct = "correct" in result.lower()
+        self.total_votes += u256(1)
+
         streak = self.current_streak.get(s, u256(0))
+        total_correct = int(self.session_correct.get(s, u256(0)))
+        total_score = int(self.session_score.get(s, u256(0)))
+        total_gen = int(self.session_gen.get(s, u256(0)))
 
-        for vote in votes:
-            proposal = vote["proposal"]
-            player_vote = vote["vote"]
-            context = vote["context"]
-            difficulty = u256(vote["difficulty"])
+        if is_correct:
+            total_correct += 1
+            streak += 1
+            reward = self.base_reward + (difficulty * u256(25)) + (streak * self.streak_bonus)
+            total_score += int(reward)
+            total_gen += int(reward)
+        else:
+            streak = 0
+            pen = min(int(self.penalty), total_gen)
+            total_gen -= pen
 
-            def judge():
-                prompt = (
-                    "GENLAYER CONSENSUS JUDGE\n"
-                    "Proposal: " + proposal + "\n"
-                    "Context: " + context + "\n"
-                    "Difficulty: " + str(difficulty) + "/3\n"
-                    "Player voted: " + player_vote + "\n"
-                    "Determine if the vote is correct. Reply ONLY: correct or wrong"
-                )
-                return gl.nondet.exec_prompt(prompt)
-
-            result = gl.eq_principle.strict_eq(judge)
-
-            is_correct = "correct" in result.lower()
-            self.total_votes += u256(1)
-
-            if is_correct:
-                total_correct += 1
-                streak += 1
-                reward = self.base_reward + (difficulty * u256(25)) + (streak * self.streak_bonus)
-                total_score += int(reward)
-                total_gen += int(reward)
-            else:
-                streak = 0
-                pen = min(int(self.penalty), total_gen)
-                total_gen -= pen
-
+        self.current_streak[s] = u256(streak)
         if streak > int(self.best_streak.get(s, u256(0))):
             self.best_streak[s] = u256(streak)
-        self.current_streak[s] = u256(streak)
+
+        self.session_correct[s] = u256(total_correct)
+        self.session_total[s] = self.session_total.get(s, u256(0)) + u256(1)
+        self.session_score[s] = u256(total_score)
+        self.session_gen[s] = u256(total_gen)
+        self.session_votes[s] = self.session_votes.get(s, u256(0)) + u256(1)
+
+        return json.dumps({
+            "correct": is_correct,
+            "streak": streak,
+        })
+
+    @gl.public.write
+    def end_session(self) -> str:
+        s = _addr(gl.message.sender_address)
+        if not self.has_active.get(s, False):
+            return "no session"
+
+        total_correct = int(self.session_correct.get(s, u256(0)))
+        total_score = int(self.session_score.get(s, u256(0)))
+        total_gen = int(self.session_gen.get(s, u256(0)))
+        total_votes = int(self.session_votes.get(s, u256(0)))
 
         self.total_score[s] = self.total_score.get(s, u256(0)) + u256(total_score)
         self.gen_balance[s] = self.gen_balance.get(s, u256(0)) + u256(total_gen)
@@ -131,9 +155,7 @@ class AetherisGame(gl.Contract):
             self.losses[s] = self.losses.get(s, u256(0)) + u256(1)
             self.reputation[s] = max(u256(0), self.reputation.get(s, u256(0)) - u256(7))
 
-        self.has_active[s] = False
-
-        accuracy = round((total_correct / len(votes)) * 100) if len(votes) > 0 else 0
+        accuracy = round((total_correct / total_votes) * 100) if total_votes > 0 else 0
         name = self.player_names.get(s, "unknown")
 
         existing_idx = self.leaderboard_by_player.get(s, "")
@@ -157,13 +179,14 @@ class AetherisGame(gl.Contract):
             self.leaderboard_by_player[s] = str(count)
             self.leaderboard_count = u256(count + 1)
 
+        self.has_active[s] = False
+
         result_str = json.dumps({
             "correct": total_correct,
-            "total": len(votes),
+            "total": total_votes,
             "score": total_score,
             "gen": total_gen,
         })
-        self.session_result[s] = result_str
         return result_str
 
     @gl.public.write
@@ -213,8 +236,14 @@ class AetherisGame(gl.Contract):
         return self.total_votes
 
     @gl.public.view
-    def get_session_result(self, addr: str) -> str:
-        return self.session_result.get(addr.lower(), "")
+    def get_session_stats(self, addr: str) -> str:
+        a = addr.lower()
+        return json.dumps({
+            "correct": int(self.session_correct.get(a, u256(0))),
+            "total": int(self.session_total.get(a, u256(0))),
+            "score": int(self.session_score.get(a, u256(0))),
+            "gen": int(self.session_gen.get(a, u256(0))),
+        })
 
     @gl.public.view
     def get_player_name(self, addr: str) -> str:
@@ -222,7 +251,6 @@ class AetherisGame(gl.Contract):
 
     @gl.public.view
     def get_leaderboard(self) -> str:
-        import json
         count = int(self.leaderboard_count)
         entries = []
         for i in range(count):

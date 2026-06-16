@@ -74,7 +74,8 @@ Open [http://localhost:8080](http://localhost:8080)
 | --- | --- | --- |
 | `register(alias)` | write | Register player (+1 GEN) |
 | `start_session()` | write | Start 3-round session |
-| `evaluate_session(votes_json)` | write | Submit votes + AI consensus |
+| `evaluate_vote(proposal, vote, context, difficulty)` | write | Evaluate single vote via AI consensus |
+| `end_session()` | write | Finalize session, update leaderboard |
 | `is_registered(addr)` | view | Check registration |
 | `get_gen(addr)` | view | Get GEN balance |
 | `get_score(addr)` | view | Get total score |

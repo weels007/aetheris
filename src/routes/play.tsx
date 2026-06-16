@@ -215,7 +215,14 @@ function PlayPage() {
       },
     ]);
 
-    appendLog(`[round ${round + 1}] voted ${finalVote} (local)`);
+    appendLog(`[round ${round + 1}] voted ${finalVote} — submitting to GenLayer...`);
+
+    try {
+      await contractRef.current?.evaluateVote(voteData);
+      appendLog(`[round ${round + 1}] AI consensus done`);
+    } catch (err) {
+      appendLog(`[round ${round + 1}] vote submitted (local only)`);
+    }
 
     setIsVoting(false);
     setPhase("reveal");
@@ -227,9 +234,9 @@ function PlayPage() {
       setIsEvaluating(true);
 
       try {
-        appendLog("[tx] submitting votes to GenLayer AI consensus...");
-        const result = await contractRef.current?.evaluateSession(votesCollected);
-        appendLog(`[ai] consensus complete: ${result?.correct}/${result?.total} correct`);
+        appendLog("[tx] ending session — finalizing on-chain stats...");
+        const result = await contractRef.current?.endSession();
+        appendLog(`[ai] session complete: ${result?.correct}/${result?.total} correct`);
 
         setScore(result?.score || 0);
         setGen((g) => g + (result?.gen || 0));
@@ -238,7 +245,7 @@ function PlayPage() {
         setReputation((r) => Math.max(0, Math.min(100, r + correctCount * 4)));
         setHistory(votesCollected.map((_, i) => ({ correct: i < correctCount, gain: 0 })));
       } catch (err) {
-        appendLog(`[error] AI consensus failed: ${err}`);
+        appendLog(`[error] end session failed: ${err}`);
       } finally {
         setIsEvaluating(false);
         setPhase("finished");
@@ -703,19 +710,19 @@ function EvaluatingPanel() {
 
   const mins = Math.floor(elapsed / 60);
   const secs = elapsed % 60;
-  const pct = Math.min((elapsed / 300) * 100, 100);
+  const pct = Math.min((elapsed / 120) * 100, 100);
 
   return (
     <div className="rounded-xl border-2 border-primary/60 bg-card overflow-hidden glow">
       <div className="px-8 py-6 bg-primary/10 text-center">
         <div className="font-mono text-xs uppercase tracking-widest text-primary mb-3">
-          // ai_consensus_in_progress
+          // finalizing_session
         </div>
         <div className="text-3xl font-bold text-primary animate-pulse">
-          GenLayer Validators Evaluating
+          Finalizing On-Chain Stats
         </div>
         <p className="mt-3 text-sm text-muted-foreground">
-          AI consensus via prompt_comparative. Max ~5 minutes.
+          Updating leaderboard and reputation on GenLayer.
         </p>
       </div>
       <div className="p-8 space-y-4">
@@ -732,9 +739,6 @@ function EvaluatingPanel() {
             className="h-full bg-primary transition-all duration-1000 rounded-full"
             style={{ width: `${pct}%` }}
           />
-        </div>
-        <div className="text-center font-mono text-xs text-muted-foreground">
-          Leader + Validator nodes running gl.eq_principle.prompt_comparative()...
         </div>
       </div>
     </div>

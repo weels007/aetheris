@@ -110,7 +110,6 @@ export interface VoteData {
   proposal: string;
   vote: string;
   context: string;
-  difficulty: number;
 }
 
 export interface VoteResult {
@@ -154,7 +153,6 @@ export class AetherisGameContract {
       vote.proposal,
       vote.vote,
       vote.context,
-      vote.difficulty,
     ]);
 
     await waitForReceipt(this.client, txHash, 60, 5000);

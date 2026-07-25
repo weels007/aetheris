@@ -182,7 +182,6 @@ function PlayPage() {
       proposal: current.prompt,
       vote: finalVote,
       context: current.context,
-      difficulty: current.difficulty,
     };
     setVotesCollected((prev) => [...prev, voteData]);
 
@@ -206,8 +205,8 @@ function PlayPage() {
 
       if (isCorrect) {
         setStreak((s) => s + 1);
-        setScore((s) => s + 50 + current.difficulty * 25);
-        setGen((g) => g + 50 + current.difficulty * 25);
+        setScore((s) => s + 100);
+        setGen((g) => g + 100);
       } else {
         setStreak(0);
       }
@@ -730,7 +729,7 @@ function Finished({
   history: { correct: boolean }[];
   onRestart: () => void;
   playerName: string;
-  votesCollected: { vote: string; difficulty: number }[];
+  votesCollected: { vote: string }[];
   roundResults: RoundResult[];
 }) {
   const correct = history.filter((h) => h.correct).length;

@@ -63,7 +63,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
   const connect = useCallback(async () => {
     if (!window.ethereum) {
-      setError("MetaMask not installed. Please install MetaMask to continue.");
+      setError("No EVM wallet found. Please install MetaMask, Rabby, or any EVM wallet.");
       return;
     }
 

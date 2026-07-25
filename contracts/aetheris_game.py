@@ -90,23 +90,34 @@ class AetherisGame(gl.Contract):
         if difficulty < u256(1) or difficulty > u256(3):
             return json.dumps({"error": "invalid difficulty"})
 
-        def judge():
-            prompt = (
-                "You are a consensus judge on the GenLayer blockchain.\n"
-                "A transaction proposal is being evaluated.\n\n"
-                "PROPOSAL:\n" + proposal + "\n\n"
-                "CONTEXT:\n" + context + "\n\n"
-                "DIFFICULTY: " + str(difficulty) + "/3\n\n"
-                "PLAYER VOTE: " + player_vote + "\n\n"
-                "Based on the proposal and context, determine if the player's vote is correct.\n"
-                "The vote is CORRECT if it matches what a reasonable validator would decide.\n"
-                "Reply with ONLY one word: correct or wrong"
-            )
+        prompt = (
+            "You are a consensus judge on the GenLayer blockchain.\n"
+            "A transaction proposal is being evaluated.\n\n"
+            "PROPOSAL:\n" + proposal + "\n\n"
+            "CONTEXT:\n" + context + "\n\n"
+            "DIFFICULTY: " + str(difficulty) + "/3\n\n"
+            "PLAYER VOTE: " + player_vote + "\n\n"
+            "Based on the proposal and context, determine if the player's vote is correct.\n"
+            "The vote is CORRECT if it matches what a reasonable validator would decide.\n"
+            "Reply with ONLY one word: correct or wrong"
+        )
+
+        def leader_fn():
             return gl.nondet.exec_prompt(prompt)
 
-        result = gl.eq_principle.strict_eq(judge)
+        def validator_fn(leader_result):
+            if not isinstance(leader_result, gl.vm.Return):
+                return False
+            validator_answer = gl.nondet.exec_prompt(prompt)
+            leader_answer = str(leader_result.calldata).lower().strip()
+            validator_answer = validator_answer.lower().strip()
+            leader_is_correct = "correct" in leader_answer
+            validator_is_correct = "correct" in validator_answer
+            return leader_is_correct == validator_is_correct
 
-        is_correct = "correct" in result.lower()
+        result = gl.vm.run_nondet_unsafe(leader_fn, validator_fn)
+
+        is_correct = "correct" in str(result).lower()
         self.total_votes += u256(1)
 
         streak = self.current_streak.get(s, u256(0))
@@ -138,7 +149,7 @@ class AetherisGame(gl.Contract):
         return json.dumps({
             "correct": is_correct,
             "streak": streak,
-            "result": result,
+            "result": str(result),
         })
 
     @gl.public.write

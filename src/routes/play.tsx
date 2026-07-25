@@ -25,22 +25,10 @@ const ROUNDS = 3;
 type Phase = "intro" | "voting" | "reveal" | "evaluating" | "finished";
 type Vote = "APPROVE" | "REJECT";
 
-interface ValidatorAgent {
-  name: string;
-  model: string;
+interface RoundResult {
+  correct: boolean;
   vote: Vote;
-  confidence: number;
-}
-
-function pickValidators(truth: Vote): ValidatorAgent[] {
-  return [
-    {
-      name: "Leader-Validator",
-      model: "gpt-4o",
-      vote: truth,
-      confidence: Math.round(85 + Math.random() * 14),
-    },
-  ];
+  result: string;
 }
 
 function PlayPage() {
@@ -49,7 +37,7 @@ function PlayPage() {
   const [round, setRound] = useState(0);
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
   const [userVote, setUserVote] = useState<Vote | null>(null);
-  const [validators, setValidators] = useState<ValidatorAgent[]>([]);
+  const [roundResult, setRoundResult] = useState<RoundResult | null>(null);
   const [score, setScore] = useState(0);
   const [streak, setStreak] = useState(0);
   const [maxStreak, setMaxStreak] = useState(0);
@@ -67,6 +55,7 @@ function PlayPage() {
   const [isVoting, setIsVoting] = useState(false);
   const [isEvaluating, setIsEvaluating] = useState(false);
   const [votesCollected, setVotesCollected] = useState<VoteData[]>([]);
+  const [roundResults, setRoundResults] = useState<RoundResult[]>([]);
   const logRef = useRef<HTMLDivElement>(null);
   const contractRef = useRef<AetherisGameContract | null>(null);
 
@@ -75,7 +64,6 @@ function PlayPage() {
   const appendLog = (msg: string) =>
     setLog((l) => [...l.slice(-40), `[${new Date().toLocaleTimeString().slice(0, 8)}] ${msg}`]);
 
-  // Initialize contract and fetch player data
   useEffect(() => {
     if (!client || !address) {
       setIsLoading(false);
@@ -91,7 +79,6 @@ function PlayPage() {
 
         appendLog(`[wallet] connected: ${address.slice(0, 6)}...${address.slice(-4)}`);
 
-        // Always check on-chain first — localStorage may be stale from old contract
         try {
           const registered = await contract.isRegistered(address);
           if (registered) {
@@ -117,13 +104,11 @@ function PlayPage() {
 
             appendLog(`[player] ${name} | GEN: ${genBalance} | REP: ${rep}`);
           } else {
-            // Not registered on-chain — clear stale localStorage
             localStorage.removeItem("aetheris_playerName");
             appendLog("[wallet] not registered on this contract");
           }
         } catch (e) {
           console.warn("[play] on-chain read failed:", e);
-          // Fallback to localStorage if on-chain fails
           const cachedName = localStorage.getItem("aetheris_playerName");
           if (cachedName) {
             setIsRegistered(true);
@@ -176,25 +161,21 @@ function PlayPage() {
       setStreak(0);
       setMaxStreak(0);
       setHistory([]);
+      setRoundResults([]);
       setUserVote(null);
+      setRoundResult(null);
       setPhase("voting");
-      appendLog("[tx] session started — 8 rounds queued");
+      appendLog("[tx] session started — 3 rounds queued");
     } catch (err) {
       appendLog(`[error] start session failed: ${err}`);
     }
   }
 
   async function handleVote(v: Vote | null) {
-    console.log("[handleVote] called", {
-      phase,
-      hasContract: !!contractRef.current,
-      hasCurrent: !!current,
-      round,
-    });
     if (phase !== "voting" || !current) return;
 
     const finalVote: Vote = v ?? (Math.random() < 0.5 ? "APPROVE" : "REJECT");
-    setUserVote(v);
+    setUserVote(finalVote);
     setIsVoting(true);
 
     const voteData: VoteData = {
@@ -205,23 +186,41 @@ function PlayPage() {
     };
     setVotesCollected((prev) => [...prev, voteData]);
 
-    const truth = current.truth;
-    setValidators([
-      {
-        name: "Leader-Validator",
-        model: "gpt-4o",
-        vote: truth,
-        confidence: Math.round(85 + Math.random() * 14),
-      },
-    ]);
-
     appendLog(`[round ${round + 1}] voted ${finalVote} — submitting to GenLayer...`);
 
     try {
-      await contractRef.current?.evaluateVote(voteData);
-      appendLog(`[round ${round + 1}] AI consensus done`);
+      const result = await contractRef.current?.evaluateVote(voteData);
+      const isCorrect = result?.correct ?? false;
+      const consensusResult = result?.result ?? "unknown";
+
+      appendLog(`[round ${round + 1}] AI consensus: ${isCorrect ? "CORRECT" : "WRONG"}`);
+
+      const roundResult: RoundResult = {
+        correct: isCorrect,
+        vote: finalVote,
+        result: consensusResult,
+      };
+      setRoundResult(roundResult);
+      setRoundResults((prev) => [...prev, roundResult]);
+      setHistory((prev) => [...prev, { correct: isCorrect, gain: 0 }]);
+
+      if (isCorrect) {
+        setStreak((s) => s + 1);
+        setScore((s) => s + 50 + current.difficulty * 25);
+        setGen((g) => g + 50 + current.difficulty * 25);
+      } else {
+        setStreak(0);
+      }
     } catch (err) {
-      appendLog(`[round ${round + 1}] vote submitted (local only)`);
+      appendLog(`[round ${round + 1}] vote failed: ${err}`);
+      const failResult: RoundResult = {
+        correct: false,
+        vote: finalVote,
+        result: "error",
+      };
+      setRoundResult(failResult);
+      setRoundResults((prev) => [...prev, failResult]);
+      setHistory((prev) => [...prev, { correct: false, gain: 0 }]);
     }
 
     setIsVoting(false);
@@ -243,7 +242,6 @@ function PlayPage() {
 
         const correctCount = result?.correct || 0;
         setReputation((r) => Math.max(0, Math.min(100, r + correctCount * 4)));
-        setHistory(votesCollected.map((_, i) => ({ correct: i < correctCount, gain: 0 })));
       } catch (err) {
         appendLog(`[error] end session failed: ${err}`);
       } finally {
@@ -254,7 +252,7 @@ function PlayPage() {
     }
     setRound((r) => r + 1);
     setUserVote(null);
-    setValidators([]);
+    setRoundResult(null);
     setPhase("voting");
   }
 
@@ -287,11 +285,11 @@ function PlayPage() {
               {phase === "voting" && current && (
                 <VotingPanel scenario={current} onVote={handleVote} isVoting={isVoting} />
               )}
-              {phase === "reveal" && current && (
+              {phase === "reveal" && current && roundResult && (
                 <RevealPanel
                   scenario={current}
                   userVote={userVote}
-                  validators={validators}
+                  roundResult={roundResult}
                   onNext={nextRound}
                   last={round + 1 >= ROUNDS}
                 />
@@ -306,6 +304,7 @@ function PlayPage() {
                   onRestart={startGame}
                   playerName={playerName}
                   votesCollected={votesCollected}
+                  roundResults={roundResults}
                 />
               )}
               {phase === "evaluating" && <EvaluatingPanel />}
@@ -580,21 +579,17 @@ function VotingPanel({
 function RevealPanel({
   scenario,
   userVote,
-  validators,
+  roundResult,
   onNext,
   last,
 }: {
   scenario: Scenario;
   userVote: Vote | null;
-  validators: ValidatorAgent[];
+  roundResult: RoundResult;
   onNext: () => void;
   last: boolean;
 }) {
-  const approve =
-    validators.filter((v) => v.vote === "APPROVE").length + (userVote === "APPROVE" ? 1 : 0);
-  const total = validators.length + 1;
-  const majority: Vote = approve > total / 2 ? "APPROVE" : "REJECT";
-  const correct = userVote === majority;
+  const correct = roundResult.correct;
 
   return (
     <div
@@ -607,52 +602,24 @@ function RevealPanel({
         <div
           className={`text-3xl font-bold font-mono ${correct ? "text-success" : "text-destructive"}`}
         >
-          {correct
-            ? "YOU MATCHED THE NETWORK"
-            : userVote
-              ? "DIVERGED FROM MAJORITY"
-              : "TIMEOUT — VOTE DEFAULTED"}
+          {correct ? "YOU MATCHED THE NETWORK" : "DIVERGED FROM CONSENSUS"}
         </div>
       </div>
       <div className="p-8 space-y-6">
-        <div>
+        <div className="rounded-md border border-border bg-background/40 p-4">
           <div className="font-mono text-xs uppercase tracking-widest text-muted-foreground mb-2">
-            # validator votes
+            # your vote
           </div>
-          <div className="space-y-2">
-            {validators.map((v) => (
-              <div
-                key={v.name}
-                className="flex items-center gap-3 rounded-md border border-border bg-background/40 p-3"
-              >
-                <div className="size-8 rounded bg-gradient-to-br from-primary/40 to-accent/40 grid place-items-center font-mono text-xs">
-                  {v.model.slice(0, 2).toUpperCase()}
-                </div>
-                <div className="flex-1">
-                  <div className="font-mono text-sm">{v.name}</div>
-                  <div className="text-xs text-muted-foreground">confidence {v.confidence}%</div>
-                </div>
-                <span
-                  className={`font-mono text-xs px-2 py-1 rounded ${v.vote === "APPROVE" ? "bg-success/20 text-success" : "bg-destructive/20 text-destructive"}`}
-                >
-                  {v.vote}
-                </span>
-              </div>
-            ))}
-            <div className="flex items-center gap-3 rounded-md border-2 border-primary/60 bg-primary/10 p-3">
-              <div className="size-8 rounded bg-gradient-to-br from-primary to-accent grid place-items-center font-mono text-xs font-bold text-primary-foreground">
-                YOU
-              </div>
-              <div className="flex-1">
-                <div className="font-mono text-sm">Your Node</div>
-                <div className="text-xs text-muted-foreground">human validator</div>
-              </div>
-              <span
-                className={`font-mono text-xs px-2 py-1 rounded ${userVote === "APPROVE" ? "bg-success/20 text-success" : userVote === "REJECT" ? "bg-destructive/20 text-destructive" : "bg-muted text-muted-foreground"}`}
-              >
-                {userVote ?? "-"}
-              </span>
-            </div>
+          <div className="flex items-center gap-3">
+            <span
+              className={`font-mono text-lg font-bold ${userVote === "APPROVE" ? "text-success" : "text-destructive"}`}
+            >
+              {userVote}
+            </span>
+            <span className="text-muted-foreground">→</span>
+            <span className="font-mono text-sm text-muted-foreground">
+              AI consensus: {roundResult.result}
+            </span>
           </div>
         </div>
 
@@ -678,7 +645,7 @@ function RevealPanel({
               >
                 <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
               </svg>
-              Submit to AI Consensus
+              Finalize Session
             </span>
           ) : (
             <span className="flex items-center justify-center gap-2">
@@ -754,6 +721,7 @@ function Finished({
   onRestart,
   playerName,
   votesCollected,
+  roundResults,
 }: {
   score: number;
   gen: number;
@@ -763,6 +731,7 @@ function Finished({
   onRestart: () => void;
   playerName: string;
   votesCollected: { vote: string; difficulty: number }[];
+  roundResults: RoundResult[];
 }) {
   const correct = history.filter((h) => h.correct).length;
   const total = history.length;
@@ -773,15 +742,6 @@ function Finished({
     if (acc >= 50) return { t: "PROBATIONARY", c: "text-warning", icon: "○" };
     return { t: "SLASHED", c: "text-destructive", icon: "✕" };
   }, [acc]);
-
-  const trophies = useMemo(() => {
-    const items: { label: string; color: string }[] = [];
-    if (acc === 100) items.push({ label: "FLAWLESS", color: "text-gradient" });
-    if (maxStreak >= 3) items.push({ label: `${maxStreak}x STREAK`, color: "text-success" });
-    if (votesCollected.every((v) => v.difficulty >= 3))
-      items.push({ label: "HARD MODE", color: "text-accent" });
-    return items;
-  }, [acc, maxStreak, votesCollected]);
 
   return (
     <div className="rounded-xl border border-primary/40 bg-card glow p-10 relative scanlines">
@@ -801,24 +761,11 @@ function Finished({
         )}
       </div>
 
-      {trophies.length > 0 && (
-        <div className="mt-6 flex justify-center gap-3 flex-wrap">
-          {trophies.map((t) => (
-            <span
-              key={t.label}
-              className={`font-mono text-xs px-3 py-1 rounded-full border border-current/30 ${t.color}`}
-            >
-              {t.label}
-            </span>
-          ))}
-        </div>
-      )}
-
       <div className="mt-8 grid grid-cols-2 md:grid-cols-4 gap-4">
         <ResultStat label="Accuracy" value={`${acc}%`} />
         <ResultStat label="Score" value={String(score)} />
         <ResultStat label="GEN" value={String(gen)} />
-        <ResultStat label="Best Streak" value={`${maxStreak}`} />
+        <ResultStat label="Correct" value={`${correct}/${total}`} />
       </div>
 
       <div className="mt-6 rounded-md border border-border bg-background/40 p-4">
@@ -826,16 +773,16 @@ function Finished({
           // vote_summary
         </div>
         <div className="flex gap-2 justify-center">
-          {votesCollected.map((v, i) => (
+          {roundResults.map((r, i) => (
             <div key={i} className="flex flex-col items-center gap-1">
               <div
                 className={`size-8 rounded font-mono text-xs grid place-items-center border ${
-                  history[i]?.correct
+                  r.correct
                     ? "bg-success/20 text-success border-success/50"
                     : "bg-destructive/20 text-destructive border-destructive/50"
                 }`}
               >
-                {v.vote === "APPROVE" ? "✓" : "✗"}
+                {r.vote === "APPROVE" ? "✓" : "✗"}
               </div>
               <span className="font-mono text-[10px] text-muted-foreground">R{i + 1}</span>
             </div>

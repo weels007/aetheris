@@ -20,7 +20,6 @@ class AetherisGame(gl.Contract):
     current_streak: TreeMap[str, u256]
     best_streak: TreeMap[str, u256]
     has_active: TreeMap[str, bool]
-    round_results: TreeMap[str, str]
     session_correct: TreeMap[str, u256]
     session_total: TreeMap[str, u256]
     session_score: TreeMap[str, u256]
@@ -35,6 +34,7 @@ class AetherisGame(gl.Contract):
     base_reward: u256
     streak_bonus: u256
     penalty: u256
+    owner: str
 
     def __init__(self):
         self.total_players = u256(0)
@@ -44,6 +44,7 @@ class AetherisGame(gl.Contract):
         self.base_reward = u256(50)
         self.streak_bonus = u256(10)
         self.penalty = u256(30)
+        self.owner = _addr(gl.message.sender_address)
 
     @gl.public.write
     def register(self, alias: str) -> str:
@@ -84,23 +85,26 @@ class AetherisGame(gl.Contract):
     def evaluate_vote(self, proposal: str, player_vote: str, context: str, difficulty: u256) -> str:
         s = _addr(gl.message.sender_address)
         if not self.has_active.get(s, False):
-            return "no session"
+            return json.dumps({"error": "no active session"})
+
+        if difficulty < u256(1) or difficulty > u256(3):
+            return json.dumps({"error": "invalid difficulty"})
 
         def judge():
             prompt = (
-                "GENLAYER CONSENSUS JUDGE\n"
-                "Proposal: " + proposal + "\n"
-                "Context: " + context + "\n"
-                "Difficulty: " + str(difficulty) + "/3\n"
-                "Player voted: " + player_vote + "\n"
-                "Determine if the vote is correct. Reply ONLY: correct or wrong"
+                "You are a consensus judge on the GenLayer blockchain.\n"
+                "A transaction proposal is being evaluated.\n\n"
+                "PROPOSAL:\n" + proposal + "\n\n"
+                "CONTEXT:\n" + context + "\n\n"
+                "DIFFICULTY: " + str(difficulty) + "/3\n\n"
+                "PLAYER VOTE: " + player_vote + "\n\n"
+                "Based on the proposal and context, determine if the player's vote is correct.\n"
+                "The vote is CORRECT if it matches what a reasonable validator would decide.\n"
+                "Reply with ONLY one word: correct or wrong"
             )
             return gl.nondet.exec_prompt(prompt)
 
-        result = gl.eq_principle.prompt_comparative(
-            judge,
-            "Both validators must agree whether the vote is correct or wrong. Reply ONLY: correct or wrong",
-        )
+        result = gl.eq_principle.strict_eq(judge)
 
         is_correct = "correct" in result.lower()
         self.total_votes += u256(1)
@@ -134,13 +138,14 @@ class AetherisGame(gl.Contract):
         return json.dumps({
             "correct": is_correct,
             "streak": streak,
+            "result": result,
         })
 
     @gl.public.write
     def end_session(self) -> str:
         s = _addr(gl.message.sender_address)
         if not self.has_active.get(s, False):
-            return "no session"
+            return json.dumps({"error": "no active session"})
 
         total_correct = int(self.session_correct.get(s, u256(0)))
         total_score = int(self.session_score.get(s, u256(0)))
@@ -184,20 +189,13 @@ class AetherisGame(gl.Contract):
 
         self.has_active[s] = False
 
-        result_str = json.dumps({
+        return json.dumps({
             "correct": total_correct,
             "total": total_votes,
             "score": total_score,
             "gen": total_gen,
+            "accuracy": accuracy,
         })
-        return result_str
-
-    @gl.public.write
-    def update_config(self, base: u256, streak: u256, pen: u256) -> str:
-        self.base_reward = base
-        self.streak_bonus = streak
-        self.penalty = pen
-        return "config updated"
 
     @gl.public.view
     def is_registered(self, addr: str) -> bool:

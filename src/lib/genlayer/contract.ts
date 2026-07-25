@@ -113,16 +113,18 @@ export interface VoteData {
   difficulty: number;
 }
 
+export interface VoteResult {
+  correct: boolean;
+  streak: number;
+  result: string;
+}
+
 export interface SessionResult {
   correct: number;
   total: number;
   score: number;
   gen: number;
-}
-
-export interface VoteResult {
-  correct: boolean;
-  streak: number;
+  accuracy: number;
 }
 
 export class AetherisGameContract {
@@ -156,9 +158,35 @@ export class AetherisGameContract {
     ]);
 
     await waitForReceipt(this.client, txHash, 60, 5000);
-    console.log("[Contract] evaluate_vote TX confirmed");
+    console.log("[Contract] evaluate_vote TX confirmed, reading result...");
 
-    return { correct: true, streak: 0 };
+    const addr = (await this.client.account?.address) || "";
+    const addrLower = addr.toLowerCase();
+
+    for (let i = 0; i < 20; i++) {
+      try {
+        const raw = await readContractWithRetry(this.client, this.address, "get_session_stats", [addrLower]);
+        const mapped = mapContractResult(raw);
+        if (mapped && typeof mapped === "object") {
+          const stats = mapped as Record<string, unknown>;
+          const total = Number(stats.total);
+          if (total > 0) {
+            const correct = Number(stats.correct);
+            console.log("[Contract] evaluateVote result:", { correct, total });
+            return {
+              correct: correct > 0,
+              streak: 0,
+              result: correct > 0 ? "correct" : "wrong",
+            };
+          }
+        }
+      } catch (e) {
+        console.log(`[Contract] evaluateVote poll (${i + 1}/20):`, e);
+      }
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+
+    return { correct: false, streak: 0, result: "unknown" };
   }
 
   async endSession(): Promise<SessionResult> {
@@ -183,6 +211,7 @@ export class AetherisGameContract {
               total: Number(stats.total),
               score: Number(stats.score),
               gen: Number(stats.gen),
+              accuracy: 0,
             };
           }
         }
@@ -192,7 +221,7 @@ export class AetherisGameContract {
       await new Promise((r) => setTimeout(r, 3000));
     }
 
-    return { correct: 0, total: 0, score: 0, gen: 0 };
+    return { correct: 0, total: 0, score: 0, gen: 0, accuracy: 0 };
   }
 
   async isRegistered(addr: string): Promise<boolean> {

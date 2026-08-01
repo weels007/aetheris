@@ -54,6 +54,8 @@ function PlayPage() {
   const [playerName, setPlayerName] = useState("");
   const [isVoting, setIsVoting] = useState(false);
   const [isEvaluating, setIsEvaluating] = useState(false);
+  const [isRegistering, setIsRegistering] = useState(false);
+  const [isStarting, setIsStarting] = useState(false);
   const [votesCollected, setVotesCollected] = useState<VoteData[]>([]);
   const [roundResults, setRoundResults] = useState<RoundResult[]>([]);
   const logRef = useRef<HTMLDivElement>(null);
@@ -133,8 +135,9 @@ function PlayPage() {
   }, [log]);
 
   async function registerPlayer(name: string) {
-    if (!contractRef.current || !address || !name.trim()) return;
+    if (!contractRef.current || !address || !name.trim() || isRegistering) return;
 
+    setIsRegistering(true);
     try {
       appendLog("[tx] registering player...");
       await contractRef.current.register(name.trim());
@@ -146,12 +149,15 @@ function PlayPage() {
       appendLog(`[tx] registered as "${name.trim()}"`);
     } catch (err) {
       appendLog(`[error] registration failed: ${err}`);
+    } finally {
+      setIsRegistering(false);
     }
   }
 
   async function startGame() {
-    if (!contractRef.current || !address) return;
+    if (!contractRef.current || !address || isStarting) return;
 
+    setIsStarting(true);
     try {
       appendLog("[tx] starting session...");
       await contractRef.current.startSession();
@@ -168,6 +174,8 @@ function PlayPage() {
       appendLog("[tx] session started — 3 rounds queued");
     } catch (err) {
       appendLog(`[error] start session failed: ${err}`);
+    } finally {
+      setIsStarting(false);
     }
   }
 
@@ -265,6 +273,8 @@ function PlayPage() {
             onRegister={registerPlayer}
             isRegistered={isRegistered}
             isLoading={isLoading}
+            isRegistering={isRegistering}
+            isStarting={isStarting}
             gen={gen}
             rep={reputation}
           />
@@ -304,6 +314,7 @@ function PlayPage() {
                   playerName={playerName}
                   votesCollected={votesCollected}
                   roundResults={roundResults}
+                  isStarting={isStarting}
                 />
               )}
               {phase === "evaluating" && <EvaluatingPanel />}
@@ -327,6 +338,8 @@ function Intro({
   onRegister,
   isRegistered,
   isLoading,
+  isRegistering,
+  isStarting,
   gen,
   rep,
 }: {
@@ -334,6 +347,8 @@ function Intro({
   onRegister: (name: string) => void;
   isRegistered: boolean;
   isLoading: boolean;
+  isRegistering: boolean;
+  isStarting: boolean;
   gen: number;
   rep: number;
 }) {
@@ -420,18 +435,39 @@ function Intro({
             />
             <button
               onClick={() => onRegister(nameInput)}
-              disabled={!nameInput.trim()}
+              disabled={!nameInput.trim() || isRegistering}
               className="w-full rounded-md bg-gradient-to-r from-primary to-accent py-4 font-mono uppercase tracking-widest text-primary-foreground glow hover:scale-[1.01] transition disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Register Node
+              {isRegistering ? (
+                <span className="flex items-center justify-center gap-2">
+                  <svg className="animate-spin size-4" viewBox="0 0 24 24" fill="none">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  </svg>
+                  Registering...
+                </span>
+              ) : (
+                "Register Node"
+              )}
             </button>
           </div>
         ) : (
           <button
             onClick={onStart}
-            className="mt-8 w-full rounded-md bg-gradient-to-r from-primary to-accent py-4 font-mono uppercase tracking-widest text-primary-foreground glow hover:scale-[1.01] transition"
+            disabled={isStarting}
+            className="mt-8 w-full rounded-md bg-gradient-to-r from-primary to-accent py-4 font-mono uppercase tracking-widest text-primary-foreground glow hover:scale-[1.01] transition disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Initialize Node
+            {isStarting ? (
+              <span className="flex items-center justify-center gap-2">
+                <svg className="animate-spin size-4" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                </svg>
+                Starting...
+              </span>
+            ) : (
+              "Initialize Node"
+            )}
           </button>
         )}
 
@@ -721,6 +757,7 @@ function Finished({
   playerName,
   votesCollected,
   roundResults,
+  isStarting,
 }: {
   score: number;
   gen: number;
@@ -731,6 +768,7 @@ function Finished({
   playerName: string;
   votesCollected: { vote: string }[];
   roundResults: RoundResult[];
+  isStarting: boolean;
 }) {
   const correct = history.filter((h) => h.correct).length;
   const total = history.length;
@@ -792,9 +830,20 @@ function Finished({
       <div className="mt-8 flex gap-3 justify-center flex-wrap">
         <button
           onClick={onRestart}
-          className="rounded-md bg-gradient-to-r from-primary to-accent px-6 py-3 font-mono uppercase tracking-widest text-primary-foreground glow hover:scale-[1.02] transition"
+          disabled={isStarting}
+          className="rounded-md bg-gradient-to-r from-primary to-accent px-6 py-3 font-mono uppercase tracking-widest text-primary-foreground glow hover:scale-[1.02] transition disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          Play Again
+          {isStarting ? (
+            <span className="flex items-center justify-center gap-2">
+              <svg className="animate-spin size-4" viewBox="0 0 24 24" fill="none">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+              </svg>
+              Starting...
+            </span>
+          ) : (
+            "Play Again"
+          )}
         </button>
         <Link
           to="/"

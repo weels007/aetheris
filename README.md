@@ -10,21 +10,22 @@
 
 Aetheris is a real-time consensus game. Players vote on scenarios, and GenLayer's intelligent contracts use AI to judge which answer is truly the best. No central authority, just collective intelligence verified on-chain.
 
-- **Wallet-first** — connect MetaMask before playing
-- **On-chain evaluation** — AI consensus decides the correct answer
+- **Wallet-first** — connect any EVM wallet before playing
+- **On-chain evaluation** — AI consensus via `run_nondet_unsafe` decides the correct answer
 - **Leaderboard** — scores tracked permanently on blockchain
 - **3 rounds** per session, random scenarios each time
+- **No mocked results** — all votes evaluated by GenLayer validators
 
 ---
 
 ## How it works
 
-1. Connect MetaMask wallet
+1. Connect EVM wallet (MetaMask, Rabby, etc.)
 2. Register player name (stored on-chain)
 3. Start session — 3 rounds of random scenarios
-4. Each round: read proposal, vote APPROVE or REJECT (30s timer)
-5. Submit all votes → GenLayer validators evaluate via AI consensus
-6. Score added to on-chain leaderboard
+4. Each round: read proposal, vote APPROVE or REJECT
+5. Each vote evaluated by GenLayer AI consensus (`run_nondet_unsafe`)
+6. End session — finalize stats and leaderboard on-chain
 
 ---
 
@@ -45,7 +46,7 @@ cp .env.example .env
 Edit `.env`:
 
 ```
-VITE_CONTRACT_ADDRESS=0x10504438B169ED1E99343e574547c648A8Da2e72
+VITE_CONTRACT_ADDRESS=0x22c2E759B7688EA1013c34Ab92744cb001d7f71f
 ```
 
 ### Deploy contract (optional)
@@ -74,21 +75,29 @@ Open [http://localhost:8080](http://localhost:8080)
 | --- | --- | --- |
 | `register(alias)` | write | Register player (+1 GEN) |
 | `start_session()` | write | Start 3-round session |
-| `evaluate_vote(proposal, vote, context, difficulty)` | write | Evaluate single vote via AI consensus |
+| `evaluate_vote(proposal, vote, context)` | write | Evaluate single vote via AI consensus |
 | `end_session()` | write | Finalize session, update leaderboard |
 | `is_registered(addr)` | view | Check registration |
 | `get_gen(addr)` | view | Get GEN balance |
 | `get_score(addr)` | view | Get total score |
+| `get_difficulty()` | view | Get fixed difficulty |
 | `get_leaderboard()` | view | Top 20 players |
+
+### Security
+
+- **No difficulty injection** — difficulty is fixed on-chain (not user-supplied)
+- **Prompt sanitization** — inputs escaped and delimited to prevent injection
+- **`run_nondet_unsafe`** — proper leader/validator pattern per GenLayer docs
+- **No admin functions** — no `update_config` or owner-only calls
 
 ---
 
 ## Tech Stack
 
 - React 19 + TanStack Start + Tailwind CSS v4
-- MetaMask via `genlayer-js`
+- Any EVM wallet via `genlayer-js`
 - GenLayer Intelligent Contract (Python)
-- AI consensus via `strict_eq`
+- AI consensus via `gl.vm.run_nondet_unsafe`
 
 ---
 

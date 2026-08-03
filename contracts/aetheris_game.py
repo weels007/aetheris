@@ -32,6 +32,7 @@ class AetherisGame(gl.Contract):
     leaderboard: TreeMap[str, str]
     leaderboard_by_player: TreeMap[str, str]
     leaderboard_count: u256
+    last_vote_result: TreeMap[str, str]
     total_players: u256
     total_games: u256
     total_votes: u256
@@ -162,6 +163,7 @@ class AetherisGame(gl.Contract):
         self.session_score[s] = u256(total_score)
         self.session_gen[s] = u256(total_gen)
         self.session_votes[s] = self.session_votes.get(s, u256(0)) + u256(1)
+        self.last_vote_result[s] = "correct" if is_correct else "wrong"
 
         return json.dumps({
             "correct": is_correct,
@@ -273,6 +275,11 @@ class AetherisGame(gl.Contract):
             "score": int(self.session_score.get(a, u256(0))),
             "gen": int(self.session_gen.get(a, u256(0))),
         })
+
+    @gl.public.view
+    def get_last_vote_result(self, addr: str) -> str:
+        a = addr.lower()
+        return self.last_vote_result.get(a, "")
 
     @gl.public.view
     def get_player_name(self, addr: str) -> str:

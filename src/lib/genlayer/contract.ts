@@ -163,20 +163,16 @@ export class AetherisGameContract {
 
     for (let i = 0; i < 20; i++) {
       try {
-        const raw = await readContractWithRetry(this.client, this.address, "get_session_stats", [addrLower]);
+        const raw = await readContractWithRetry(this.client, this.address, "get_last_vote_result", [addrLower]);
         const mapped = mapContractResult(raw);
-        if (mapped && typeof mapped === "object") {
-          const stats = mapped as Record<string, unknown>;
-          const total = Number(stats.total);
-          if (total > 0) {
-            const correct = Number(stats.correct);
-            console.log("[Contract] evaluateVote result:", { correct, total });
-            return {
-              correct: correct > 0,
-              streak: 0,
-              result: correct > 0 ? "correct" : "wrong",
-            };
-          }
+        if (mapped && typeof mapped === "string" && (mapped === "correct" || mapped === "wrong")) {
+          const isCorrect = mapped === "correct";
+          console.log("[Contract] evaluateVote result:", { correct: isCorrect });
+          return {
+            correct: isCorrect,
+            streak: 0,
+            result: mapped,
+          };
         }
       } catch (e) {
         console.log(`[Contract] evaluateVote poll (${i + 1}/20):`, e);

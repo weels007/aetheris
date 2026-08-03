@@ -214,7 +214,6 @@ function PlayPage() {
       if (isCorrect) {
         setStreak((s) => s + 1);
         setScore((s) => s + 100);
-        setGen((g) => g + 100);
       } else {
         setStreak(0);
       }
@@ -245,10 +244,14 @@ function PlayPage() {
         appendLog(`[ai] session complete: ${result?.correct}/${result?.total} correct`);
 
         setScore(result?.score || 0);
-        setGen((g) => g + (result?.gen || 0));
+        setGen(result?.gen || 0);
 
         const correctCount = result?.correct || 0;
-        setReputation((r) => Math.max(0, Math.min(100, r + correctCount * 4)));
+        if (correctCount > 0) {
+          setReputation((r) => Math.min(100, r + correctCount * 4));
+        } else {
+          setReputation((r) => Math.max(0, r - 7));
+        }
       } catch (err) {
         appendLog(`[error] end session failed: ${err}`);
       } finally {

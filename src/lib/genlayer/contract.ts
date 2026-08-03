@@ -149,6 +149,21 @@ export class AetherisGameContract {
   async evaluateVote(vote: VoteData): Promise<VoteResult> {
     console.log("[Contract] evaluateVote:", vote.vote, "on proposal:", vote.proposal.substring(0, 50));
 
+    const addr = (await this.client.account?.address) || "";
+    const addrLower = addr.toLowerCase();
+
+    // Read vote count BEFORE submitting to detect stale results
+    let prevVoteCount = 0;
+    try {
+      const rawStats = await readContractWithRetry(this.client, this.address, "get_session_stats", [addrLower]);
+      const mappedStats = mapContractResult(rawStats);
+      if (mappedStats && typeof mappedStats === "object") {
+        prevVoteCount = Number((mappedStats as Record<string, unknown>).total || 0);
+      }
+    } catch (e) {
+      console.log("[Contract] could not read prev vote count:", e);
+    }
+
     const txHash = await writeContract(this.client, this.address, "evaluate_vote", [
       vote.proposal,
       vote.vote,
@@ -158,21 +173,29 @@ export class AetherisGameContract {
     await waitForReceipt(this.client, txHash, 60, 5000);
     console.log("[Contract] evaluate_vote TX confirmed, reading result...");
 
-    const addr = (await this.client.account?.address) || "";
-    const addrLower = addr.toLowerCase();
-
     for (let i = 0; i < 20; i++) {
       try {
         const raw = await readContractWithRetry(this.client, this.address, "get_last_vote_result", [addrLower]);
         const mapped = mapContractResult(raw);
         if (mapped && typeof mapped === "string" && (mapped === "correct" || mapped === "wrong")) {
-          const isCorrect = mapped === "correct";
-          console.log("[Contract] evaluateVote result:", { correct: isCorrect });
-          return {
-            correct: isCorrect,
-            streak: 0,
-            result: mapped,
-          };
+          // Verify vote count increased (stale detection)
+          try {
+            const rawStats = await readContractWithRetry(this.client, this.address, "get_session_stats", [addrLower]);
+            const mappedStats = mapContractResult(rawStats);
+            if (mappedStats && typeof mappedStats === "object") {
+              const newVoteCount = Number((mappedStats as Record<string, unknown>).total || 0);
+              if (newVoteCount > prevVoteCount) {
+                const isCorrect = mapped === "correct";
+                console.log("[Contract] evaluateVote result:", { correct: isCorrect });
+                return { correct: isCorrect, streak: 0, result: mapped };
+              }
+            }
+          } catch (e) {
+            // If we can't verify, still return the result
+            const isCorrect = mapped === "correct";
+            console.log("[Contract] evaluateVote result (unverified):", { correct: isCorrect });
+            return { correct: isCorrect, streak: 0, result: mapped };
+          }
         }
       } catch (e) {
         console.log(`[Contract] evaluateVote poll (${i + 1}/20):`, e);
@@ -180,6 +203,7 @@ export class AetherisGameContract {
       await new Promise((r) => setTimeout(r, 2000));
     }
 
+    // Timeout - don't penalize, return unknown
     return { correct: false, streak: 0, result: "unknown" };
   }
 

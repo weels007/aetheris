@@ -1,4 +1,0 @@
-const tsrStartManifest = () => ({ routes: { __root__: { filePath: "D:/Genlayer-project/weels/aetheris/src/routes/__root.tsx", children: ["/", "/leaderboard", "/play"], preloads: ["/assets/index-Sw3rMIVh.js"], scripts: [{ attrs: { type: "module", async: true, src: "/assets/index-Sw3rMIVh.js" } }] }, "/": { filePath: "D:/Genlayer-project/weels/aetheris/src/routes/index.tsx", children: void 0, preloads: ["/assets/index-DknoPKQl.js", "/assets/Nav-BeiY1NQS.js"] }, "/leaderboard": { filePath: "D:/Genlayer-project/weels/aetheris/src/routes/leaderboard.tsx", children: void 0, preloads: ["/assets/leaderboard-wbEgRY_I.js", "/assets/Nav-BeiY1NQS.js", "/assets/contract-C-WYVXxo.js"] }, "/play": { filePath: "D:/Genlayer-project/weels/aetheris/src/routes/play.tsx", children: void 0, preloads: ["/assets/play-C_ZmW32C.js", "/assets/Nav-BeiY1NQS.js", "/assets/contract-C-WYVXxo.js"] } } });
-export {
-  tsrStartManifest
-};

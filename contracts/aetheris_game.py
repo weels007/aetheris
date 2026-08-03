@@ -119,6 +119,10 @@ class AetherisGame(gl.Contract):
             "Reply with ONLY one word: correct or wrong"
         )
 
+        def _parse_verdict(answer: str) -> bool:
+            w = answer.strip().lower()
+            return w == "correct" or w.startswith("correct ") or w.endswith(" correct")
+
         def leader_fn():
             return gl.nondet.exec_prompt(prompt)
 
@@ -126,15 +130,14 @@ class AetherisGame(gl.Contract):
             if not isinstance(leader_result, gl.vm.Return):
                 return False
             validator_answer = gl.nondet.exec_prompt(prompt)
-            leader_answer = str(leader_result.calldata).lower().strip()
-            validator_answer = validator_answer.lower().strip()
-            leader_is_correct = "correct" in leader_answer
-            validator_is_correct = "correct" in validator_answer
+            leader_answer = str(leader_result.calldata)
+            leader_is_correct = _parse_verdict(leader_answer)
+            validator_is_correct = _parse_verdict(validator_answer)
             return leader_is_correct == validator_is_correct
 
         result = gl.vm.run_nondet_unsafe(leader_fn, validator_fn)
 
-        is_correct = "correct" in str(result).lower()
+        is_correct = _parse_verdict(str(result))
         self.total_votes += u256(1)
 
         streak = self.current_streak.get(s, u256(0))
@@ -274,6 +277,16 @@ class AetherisGame(gl.Contract):
             "total": int(self.session_total.get(a, u256(0))),
             "score": int(self.session_score.get(a, u256(0))),
             "gen": int(self.session_gen.get(a, u256(0))),
+        })
+
+    @gl.public.view
+    def get_cumulative_stats(self, addr: str) -> str:
+        a = addr.lower()
+        return json.dumps({
+            "total_score": int(self.total_score.get(a, u256(0))),
+            "gen_balance": int(self.gen_balance.get(a, u256(0))),
+            "reputation": int(self.reputation.get(a, u256(0))),
+            "games_played": int(self.games_played.get(a, u256(0))),
         })
 
     @gl.public.view

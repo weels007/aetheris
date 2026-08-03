@@ -1,0 +1,11 @@
+import "events";
+import "https";
+import "http";
+import "net";
+import "tls";
+import "crypto";
+import "stream";
+import "url";
+import "zlib";
+import "buffer";
+import "util";

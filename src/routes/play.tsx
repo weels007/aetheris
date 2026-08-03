@@ -212,7 +212,11 @@ function PlayPage() {
       setHistory((prev) => [...prev, { correct: isCorrect, gain: 0 }]);
 
       if (isCorrect) {
-        setStreak((s) => s + 1);
+        setStreak((s) => {
+          const newStreak = s + 1;
+          setMaxStreak((prev) => Math.max(prev, newStreak));
+          return newStreak;
+        });
         setScore((s) => s + 100);
       } else {
         setStreak(0);
@@ -240,18 +244,16 @@ function PlayPage() {
 
       try {
         appendLog("[tx] ending session — finalizing on-chain stats...");
-        const result = await contractRef.current?.endSession();
-        appendLog(`[ai] session complete: ${result?.correct}/${result?.total} correct`);
+        const sessionResult = await contractRef.current?.endSession();
+        appendLog(`[ai] session complete: ${sessionResult?.correct}/${sessionResult?.total} correct`);
 
-        setScore(result?.score || 0);
-        setGen(result?.gen || 0);
+        // Read cumulative stats from contract
+        const addr = address || "";
+        const cumStats = await contractRef.current?.getCumulativeStats(addr);
 
-        const correctCount = result?.correct || 0;
-        if (correctCount > 0) {
-          setReputation((r) => Math.min(100, r + correctCount * 4));
-        } else {
-          setReputation((r) => Math.max(0, r - 7));
-        }
+        setScore(cumStats?.totalScore || 0);
+        setGen(cumStats?.genBalance || 0);
+        setReputation(cumStats?.reputation || 50);
       } catch (err) {
         appendLog(`[error] end session failed: ${err}`);
       } finally {

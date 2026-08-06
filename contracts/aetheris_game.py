@@ -121,7 +121,7 @@ class AetherisGame(gl.Contract):
 
         def _parse_verdict(answer: str) -> bool:
             w = answer.strip().lower()
-            return w == "correct" or w.startswith("correct ") or w.endswith(" correct")
+            return w == "correct" or w.startswith("correct ")
 
         def leader_fn():
             return gl.nondet.exec_prompt(prompt)
